@@ -15,7 +15,13 @@ enum Token {
     tok_number = -4,
     tok_if = -5,
     tok_then = -6,
-    tok_else = -7
+    tok_else = -7,
+    tok_for = -8,
+    tok_in = -9,
+    tok_extern = -10,
+    tok_int = -11,
+    tok_double = -12,
+    tok_var = -13
 };
 
 class Lexer {
@@ -50,7 +56,19 @@ class Lexer {
                   return tok_then;
                 if (identifierStr == "else")
                   return tok_else;
-                
+                if (identifierStr == "for")
+                  return tok_for;
+                if (identifierStr == "in")
+                  return tok_in;
+                if (identifierStr == "extern")
+                  return tok_extern;
+                if (identifierStr == "int")
+                  return tok_var;
+                if (identifierStr == "double")
+                  return tok_var;
+                if (identifierStr == "var")
+                  return tok_var;
+
                 return tok_identifier;
             }
 
@@ -71,11 +89,24 @@ class Lexer {
             //
             // ここに実装して下さい
             if (isdigit(lastChar)) {
+                bool isd = 0;
                 std::string numStr = "";
                 numStr += lastChar;
                 while (isdigit(lastChar = getNextChar(iFile)))
                     numStr += lastChar;
-                setnumVal(strtod(numStr.c_str(), nullptr));
+                if(lastChar == '.'){
+                    isd = 1;
+                    numStr += lastChar;
+                    while (isdigit(lastChar = getNextChar(iFile)))
+                        numStr += lastChar;
+                }
+                if(isd==1){
+                    setnumVal(strtod(numStr.c_str(), nullptr));
+                    setnumVal_i((double)NAN);
+                }else{
+                    setnumVal(NAN);
+                    setnumVal_i(strtod(numStr.c_str(), nullptr));
+                }
                 return tok_number;
             }
 
@@ -108,8 +139,10 @@ class Lexer {
         }
 
         // 数字を格納するnumValのgetter, setter
-        int getNumVal() { return numVal; }
-        void setnumVal(int numval) { numVal = numval; }
+        double getNumVal() { return numVal; }
+        int getNumVal_i() {return numVal_i;}
+        void setnumVal(double numval) { numVal = numval; }
+        void setnumVal_i(int numval) { numVal_i = numval; }
 
         // 識別子を格納するIdentifierStrのgetter, setter
         std::string getIdentifier() { return identifierStr; }
@@ -119,7 +152,8 @@ class Lexer {
 
             private:
         std::ifstream iFile;
-        uint64_t numVal;
+        double numVal;
+        int numVal_i;
         // tok_identifierなら文字を入れる
         std::string identifierStr;
         static char getNextChar(std::ifstream &is) {

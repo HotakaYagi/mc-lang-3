@@ -1,4 +1,5 @@
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/BasicBlock.h"
@@ -47,6 +48,7 @@ Lexer lexer;
 
 #include "helper/helper.h"
 
+
 //===----------------------------------------------------------------------===//
 // Main driver code.
 // コンパイラのインターフェースをドライバーと言ったりしますが、このメイン関数がまさにそれです。
@@ -69,7 +71,9 @@ int main(int argc, char *argv[]) {
     BinopPrecedence['+'] = 20;
     BinopPrecedence['-'] = 20;
     BinopPrecedence['*'] = 40;
-    BinopPrecedence['<'] = 50;
+    BinopPrecedence['/'] = 40;
+    BinopPrecedence['<'] = 10;
+    BinopPrecedence['='] = 5;
 
     getNextToken();
 

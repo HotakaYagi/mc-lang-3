@@ -19,10 +19,13 @@ namespace {
     // NumberAST - `5`や`2`等の数値リテラルを表すクラス
     class NumberAST : public ExprAST {
         // 実際に数値の値を保持する変数
-        int Val;
-
+        double Val;
+        int Val_i;
+        bool isd;
+//ここに型の概念を追加する？
         public:
-        NumberAST(int Val) : Val(Val) {}
+        NumberAST(double Val,bool isd) : Val(Val), isd(isd) {}
+        NumberAST(int Val_i,bool isd) : Val_i(Val_i), isd(isd) {}
         Value *codegen() override;
     };
 
@@ -42,10 +45,13 @@ namespace {
     // VariableExprAST - 変数の名前を表すクラス
     class VariableExprAST : public ExprAST {
         std::string variableName;
-
+        //std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> variableName;std::unique_ptr<ExprAST> Body;
+//ここに型の概念を追加する？
         public:
+        //VariableExprAST(std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> variableName,std::unique_ptr<ExprAST> Body) : variableName(std::move(variableName)), Body(std::move(Body)) {}
         VariableExprAST(const std::string &variableName) : variableName(variableName) {}
         Value *codegen() override;
+        const std::string &getName() const { return variableName; }
     };
 
     // CallExprAST - 関数呼び出しを表すクラス
@@ -98,6 +104,30 @@ namespace {
 
         Value *codegen() override;
     };
+
+    /// ForExprAST - for/inのための式クラス。
+    class ForExprAST : public ExprAST {
+        std::string VarName;
+        std::unique_ptr<ExprAST> Start, End, Step, Body;
+
+        public:
+        ForExprAST(const std::string &VarName, std::unique_ptr<ExprAST> Start, std::unique_ptr<ExprAST> End,std::unique_ptr<ExprAST> Step, std::unique_ptr<ExprAST> Body)
+        : VarName(VarName), Start(std::move(Start)), End(std::move(End)), Step(std::move(Step)), Body(std::move(Body)) {}
+
+        Value *codegen() override;
+        //virtual Value *codegen();
+    };
+
+    class VarExprAST : public ExprAST {
+        std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+        std::unique_ptr<ExprAST> Body;
+
+        public:
+        VarExprAST(std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames,std::unique_ptr<ExprAST> Body)
+        : VarNames(std::move(VarNames)), Body(std::move(Body)) {}
+        Value *codegen() override;
+};
+
 } // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
@@ -144,17 +174,28 @@ static std::unique_ptr<ExprAST> ParseExpression();
 // 数値リテラルをパースする関数。
 static std::unique_ptr<ExprAST> ParseNumberExpr() {
     // NumberASTのValにlexerからnumValを読んできて、セットする。
-    auto Result = llvm::make_unique<NumberAST>(lexer.getNumVal());
+    bool isd = 1;
+    auto Result = llvm::make_unique<NumberAST>(lexer.getNumVal(),isd);
+    if(std::isnan(lexer.getNumVal())){
+        isd = 0;
+        Result = llvm::make_unique<NumberAST>(lexer.getNumVal_i(),isd);
+    }
     getNextToken(); // トークンを一個進めて、returnする。
     return std::move(Result);
 }
 
+//static std::unique_ptr<ExprAST> ParseNumberDouble(){  
+//}
 static std::unique_ptr<ExprAST> ParseNumberNeg(){
     getNextToken();
     if(CurTok != tok_number){
         return LogError("expected 'number' after the '-'");
     }else{
-        auto Result = llvm::make_unique<NumberAST>(-lexer.getNumVal());
+        bool isd = 1;
+        auto Result = llvm::make_unique<NumberAST>(-lexer.getNumVal(), isd);
+        if(std::isnan(lexer.getNumVal()))
+            isd = 0;
+            Result = llvm::make_unique<NumberAST>(-lexer.getNumVal_i(), isd);
         getNextToken();
         return Result;
     }
@@ -233,6 +274,98 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
     return llvm::make_unique<CallExprAST>(IdName, std::move(args));
 }
 
+  static std::unique_ptr<ExprAST> ParseForExpr() {
+    getNextToken();  // eat for
+    if (CurTok != tok_identifier)
+      return nullptr;
+ 
+      std::string IdName = lexer.getIdentifier();
+      getNextToken();  // eat i
+ 
+      if (CurTok != '=')
+        return nullptr;
+      getNextToken();  // eat =
+ 
+      // for i = 1,10
+      auto StartV = ParseExpression();
+      if (StartV == 0) return 0;
+      if (CurTok != ',')
+        return nullptr;
+      getNextToken();
+ 
+      auto EndV = ParseExpression();
+      if (EndV == 0) return 0;
+ 
+      // for i = 1,10,2 in
+      std::unique_ptr<ExprAST> StepV = 0;
+      if (CurTok == ',') {
+        getNextToken();
+        StepV = ParseExpression();
+        if (StepV == 0) return 0;
+       }
+ 
+      if (CurTok != tok_in)
+        return nullptr;
+      getNextToken();  // eat in
+
+      auto BodyV = ParseExpression();
+      if (BodyV == 0) return 0;
+ 
+      
+      //return llvm::make_unique<ForExprAST>(IdName, std::move(StartV),std::move(EndV),std::move(StepV), std::move(BodyV));
+      std::unique_ptr<ExprAST> ForExpAST (new ForExprAST(IdName, std::move(StartV), std::move(EndV), std::move(StepV), std::move(BodyV)));
+      return ForExpAST;
+}
+
+
+static std::unique_ptr<ExprAST> ParseVarExpr() {
+    getNextToken();  // eat the type.
+
+    std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+
+    // At least one variable name is required.
+    if (CurTok != tok_identifier)
+      return LogError("expected identifier after double");
+    while (1) {
+      std::string Name = lexer.getIdentifier();
+      getNextToken();  // eat identifier.
+      // Read the optional initializer.
+      std::unique_ptr<ExprAST> Init;
+
+      if (CurTok == '=') {
+          getNextToken(); // eat the '='.
+          Init = ParseExpression();
+          if (!Init) return nullptr;
+        }
+
+      VarNames.push_back(std::make_pair(Name, std::move(Init)));
+
+      // End of var list, exit loop.
+      if (CurTok != ',') break;
+      getNextToken(); // eat the ','.
+
+      if (CurTok != tok_identifier)
+         return LogError("expected identifier list after var");
+     }
+
+        // At this point, we have to have 'in'.
+     if (CurTok != tok_in)
+         return LogError("expected 'in' keyword after 'var'");
+     getNextToken();  // eat 'in'.
+
+     auto Body = ParseExpression();
+     if (!Body)
+       return nullptr;
+
+     std::unique_ptr<ExprAST> VarExpAST(new VarExprAST(std::move(VarNames),std::move(Body)));
+     return VarExpAST;
+}
+
+//doubleの型の変数を定義する
+static std::unique_ptr<ExprAST> ParseDoubleVariable(){
+   getNextToken();//eat double
+   return nullptr;
+}
 static std::unique_ptr<ExprAST> ParseIfExpr() {
     // TODO 3.3: If文のパーシングを実装してみよう。
     // 1. ParseIfExprに来るということは現在のトークンが"if"なので、
@@ -279,6 +412,16 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
             return ParseIfExpr();
         case '-':
             return ParseNumberNeg();
+        case tok_for:
+            return ParseForExpr();
+//        case tok_int:
+//            return ParseIntVariable();
+//        case tok_double:
+//            return ParseDoubleVariable();
+        case tok_var:
+            return ParseVarExpr();
+        //case '.':
+          //  return ParseNumberDouble();
     }
 }
 
@@ -318,7 +461,6 @@ static std::unique_ptr<ExprAST> ParseBinOpRHS(int CallerPrec,
             if (!RHS)
                 return nullptr;
         }
-
         // LHS, RHSをBinaryASTにしてLHSに代入する。
         LHS = llvm::make_unique<BinaryAST>(BinOp, std::move(LHS), std::move(RHS));
     }
@@ -333,15 +475,16 @@ static std::unique_ptr<PrototypeAST> ParsePrototype() {
         return LogErrorP("Expected function name in prototype");
 
     std::string FnName = lexer.getIdentifier();;
-    getNextToken();
+    getNextToken();// eat function name
 
     if (CurTok != '(')
         return LogErrorP("Expected '(' in prototype");
-
+    getNextToken();//eat (
     std::vector<std::string> ArgNames;
-    while (getNextToken() == tok_identifier) {
+    while (CurTok == tok_identifier) {
         std::string curArg = lexer.getIdentifier();
         ArgNames.push_back(curArg);
+        getNextToken();
     }
     if (CurTok != ')')
         return LogErrorP("Expected ')' in prototype");
@@ -382,3 +525,9 @@ static std::unique_ptr<FunctionAST> ParseTopLevelExpr() {
     }
     return nullptr;
 }
+
+  static std::unique_ptr<PrototypeAST> ParseExtern() {
+    getNextToken(); // eat extern.
+    return ParsePrototype();
+  }
+
