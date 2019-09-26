@@ -69,13 +69,25 @@ namespace {
     class PrototypeAST {
         std::string Name;
         std::vector<std::string> args;
+        bool IsOperator;
+        unsigned Precedence;  
 
         public:
-        PrototypeAST(const std::string &Name, std::vector<std::string> args)
-            : Name(Name), args(std::move(args)) {}
+        PrototypeAST(const std::string &Name, std::vector<std::string> args, bool IsOperator = false, unsigned Prec = 0)
+            : Name(Name), args(std::move(args)), IsOperator(IsOperator), Precedence(Prec) {}
 
         Function *codegen();
         const std::string &getFunctionName() const { return Name; }
+
+        bool isUnaryOp() const { return IsOperator && args.size() == 1; }
+  bool isBinaryOp() const { return IsOperator && args.size() == 2; }
+
+        char getOperatorName() const {
+           assert(isUnaryOp() || isBinaryOp());
+          return Name[Name.size() - 1];
+      }
+
+  unsigned getBinaryPrecedence() const { return Precedence; }
     };
 
     // FunctionAST - 関数シグネチャー(PrototypeAST)に加えて関数のbody(C++で言うint foo) {...}の中身)を
@@ -350,6 +362,16 @@ static std::unique_ptr<ExprAST> ParseVarExpr() {
      return VarExpAST;
 }
 
+//static std::unique_ptr<ExprAST> ParsePrint(){
+//    getNextToken();// eat print
+//    if (CurTok != '(')
+//      return nullptr;
+//    getNextToken();//eat (
+//    fprintf(stderr, "value: %e\n", lexer.getNumVal());
+//    getNextToken(); //eat )
+//    return nullptr;
+//}
+
 //intの型の変数を定義する
 static std::unique_ptr<ExprAST> ParseIntVariable(){
    getNextToken();//eat int
@@ -414,6 +436,8 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
             return ParseDoubleVariable();
         case tok_var:
             return ParseVarExpr();
+        //case tok_print:
+          //  return ParsePrint();
         //case '.':
           //  return ParseNumberDouble();
     }
@@ -466,11 +490,35 @@ static std::unique_ptr<PrototypeAST> ParsePrototype() {
     // 2.2とほぼ同じ。CallExprASTではなくPrototypeASTを返し、
     // 引数同士の区切りが','ではなくgetNextToken()を呼ぶと直ぐに
     // CurTokに次の引数(もしくは')')が入るという違いのみ。
-    if (CurTok != tok_identifier)
-        return LogErrorP("Expected function name in prototype");
 
-    std::string FnName = lexer.getIdentifier();;
-    getNextToken();// eat function name
+    std::string FnName = lexer.getIdentifier();
+    unsigned Kind = 0;  // 0 = identifier, 1 = unary, 2 = binary.
+  unsigned BinaryPrecedence = 30;
+
+  switch (CurTok) {
+  default:
+    return LogErrorP("Expected function name in prototype");
+  case tok_identifier:
+    FnName = lexer.getIdentifier();
+    Kind = 0;
+    getNextToken();
+    break;
+  case tok_binary:
+    getNextToken();
+    if (!isascii(CurTok))
+      return LogErrorP("Expected binary operator");
+    FnName = "binary";
+    FnName += (char)CurTok;
+    Kind = 2;
+    getNextToken();
+
+    // Read the precedence if present.
+    if (CurTok == tok_number) {
+      BinaryPrecedence = (unsigned)lexer.getNumVal();
+      getNextToken();
+    }
+    break;
+  }
 
     if (CurTok != '(')
         return LogErrorP("Expected '(' in prototype");
@@ -486,7 +534,7 @@ static std::unique_ptr<PrototypeAST> ParsePrototype() {
 
     getNextToken();
 
-    return llvm::make_unique<PrototypeAST>(FnName, std::move(ArgNames));
+    return llvm::make_unique<PrototypeAST>(FnName, std::move(ArgNames), Kind != 0, BinaryPrecedence);
 }
 
 static std::unique_ptr<FunctionAST> ParseDefinition() {

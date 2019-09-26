@@ -21,7 +21,10 @@ enum Token {
     tok_extern = -10,
     tok_int = -11,
     tok_double = -12,
-    tok_var = -13
+    tok_var = -13,
+    tok_binary = -14,
+    tok_unary = -15,
+    tok_print = -16
 };
 
 class Lexer {
@@ -68,6 +71,12 @@ class Lexer {
                   return tok_double;
                 if (identifierStr == "var")
                   return tok_var;
+                if (identifierStr == "binary")
+                  return tok_binary;
+                if (identifierStr == "unary")
+                  return tok_unary;
+                if (identifierStr == "print")
+                  return tok_print;
 
                 return tok_identifier;
             }

@@ -132,6 +132,13 @@ Value *BinaryAST::codegen() {
         default:
             return LogErrorV("invalid binary operator");
     }
+    // If it wasn't a builtin binary operator, it must be a user defined one. Emit
+    // a call to it.
+    Function *F = myModule->getFunction(std::string("binary") + Op);
+    assert(F && "binary operator not found!");
+
+    Value *Ops[2] = { L, R };
+    return Builder.CreateCall(F, Ops, "binop");
 }
 
 Function *PrototypeAST::codegen() {
@@ -155,14 +162,17 @@ Function *PrototypeAST::codegen() {
 
 
 Function *FunctionAST::codegen() {
+    auto &P = *proto;
+    FunctionProtos[proto->getFunctionName()] = std::move(proto);
+    Function *function = myModule->getFunction(P.getFunctionName());
     // この関数が既にModuleに登録されているか確認
-    Function *function = myModule->getFunction(proto->getFunctionName());
+    //Function *function = myModule->getFunction(proto->getFunctionName());
     // 関数名が見つからなかったら、新しくこの関数のIRクラスを作る。
-    if (!function)
-        function = proto->codegen();
+       // function = proto->codegen();
     if (!function)
         return nullptr;
-
+    if (P.isBinaryOp())
+        BinopPrecedence[P.getOperatorName()] = P.getBinaryPrecedence();
     // エントリーポイントを作る
     BasicBlock *BB = BasicBlock::Create(Context, "entry", function);
     Builder.SetInsertPoint(BB);
@@ -190,9 +200,10 @@ Function *FunctionAST::codegen() {
 
         return function;
     }
-
     // もし関数のbodyがnullptrなら、この関数をModuleから消す。
     function->eraseFromParent();
+    if (P.isBinaryOp())
+        BinopPrecedence.erase(P.getOperatorName());
     return nullptr;
 }
 
