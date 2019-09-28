@@ -193,9 +193,10 @@ static std::unique_ptr<ExprAST> ParseNumberNeg(){
     }else{
         bool isd = 1;
         auto Result = llvm::make_unique<NumberAST>(-lexer.getNumVal(), isd);
-        if(std::isnan(lexer.getNumVal()))
+        if(std::isnan(lexer.getNumVal())){
             isd = 0;
             Result = llvm::make_unique<NumberAST>(-lexer.getNumVal_i(), isd);
+        }
         getNextToken();
         return Result;
     }
